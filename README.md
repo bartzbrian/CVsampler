@@ -1,1 +1,1 @@
-
+Working on a arduino based eurorack module, posting the code here. It takes two inputs, one an envelope follower, one a trigger. while holding the record button down, the module records the input from the envelope follower, with the pot acting as an offset, into a buffer of up to six seconds. Once recorded, this CV buffer is then output from the out jack, either once per a trigger, or looping continuously if the cycle toggle button is pushed.
