@@ -17,6 +17,7 @@ const int trigIn = A1;
 bool cycling = false;
 bool recording = false;
 bool triggered = false;
+bool recTrig = false;
 
 int recButStateCurrent;
 int recButStatePrevious;
@@ -75,13 +76,30 @@ void loop(){
     potState = analogRead(potPin);
     envInState = scale(0,1023,0,600,analogRead(envIn));
     trigInStateCurrent = analogRead(trigIn);
-
-    //Serial.println(trigInStateCurrent);
-
+ 
+    //dedicated envelope follower output
     dac2.setVoltage(envInState*4,false);
 
-    //check cycle button
-    if (cycleButStateCurrent && !cycleButStatePrevious && cycling == 0 && millis()-cycleButtonTime>200){
+    //if holding down both buttons simultaneously, start recording at trigger 
+    if (recButStateCurrent && cycleButStateCurrent){
+        digitalWrite(recLED,LOW);
+        digitalWrite(cycleLED,LOW);
+        cycling = false;
+        recording = false;
+        if (trigInStateCurrent > 700 && trigInStatePrevious < 20){
+          Serial.println("recording triggered");
+          digitalWrite(recLED,HIGH);
+          digitalWrite(cycleLED,LOW);
+          buffPosition = 0;
+          buffLength = 0;
+          startTime = time;
+          Serial.println("recording");
+          recording = true;
+        }
+    }   
+
+    //check cycle button state, set cycling vars accordingly
+    if (cycleButStateCurrent && !recButStateCurrent && !cycleButStatePrevious && cycling == 0 && millis()-cycleButtonTime>200){
       cycling = 1;
       digitalWrite(cycleLED,HIGH);
       Serial.println("cycling on");
@@ -93,12 +111,14 @@ void loop(){
       cycleButtonTime = millis();
     }
 
+    //output 0 Volts to dac if not cycling or triggered
     if (!cycling && !triggered){
       dac1.setVoltage(0,false);
       analogWrite(11,0); 
     }
 
-    if (recButStateCurrent && !recButStatePrevious && !recording){
+    //start recording if rec button held down
+    if (recButStateCurrent && !recButStatePrevious && !recording && !cycleButStateCurrent){
       digitalWrite(recLED,HIGH);
       digitalWrite(cycleLED,LOW);
       buffPosition = 0;
@@ -107,11 +127,9 @@ void loop(){
       Serial.println("recording");
       recording = true;
       cycling = false;
-
     }
 
-
-    //if rec button released
+    //if rec button released, stop recording
     if (!recButStateCurrent && recording){
       Serial.println("done recording");
       digitalWrite(recLED, LOW);
@@ -130,7 +148,7 @@ void loop(){
     //playback buffer once per trigger
     if (triggered){
       playbackTime = time-startTime;
-      if (playbackTime >= buffLength){
+      if (playbackTime >= buffLength){ //if buffer play complete, stop
           triggered = false;
         }
       playbackBuff();     
@@ -139,15 +157,16 @@ void loop(){
     //if cycling mode enabled
     if (cycling){
       playbackTime = time-startTime;
-      if (playbackTime >= buffLength){
+      if (playbackTime >= buffLength){ //if buffer play complete, reset and play again
           playbackTime = 0;
           buffPosition = 0;
           startTime = time;
           Serial.println("cycle complete");
         }
-      playbackBuff();
+      playbackBuff(); 
     }
-    
+
+    //records to the buffer 
     if (recording) {
       buffLength = time-startTime;
       Serial.println(buffLength);
@@ -172,4 +191,4 @@ void loop(){
     cycleButStatePrevious = cycleButStateCurrent;
     recButStatePrevious = recButStateCurrent;
     trigInStatePrevious = trigInStateCurrent;
-  }
+}
