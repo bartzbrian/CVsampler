@@ -1,13 +1,14 @@
 #include <Wire.h>
 #include <Adafruit_MCP4725.h>
 
-Adafruit_MCP4725 dac;
+Adafruit_MCP4725 dac1;
+Adafruit_MCP4725 dac2;
 
 //pinMap
-const int recordButton = 2;
-const int cycleButton = 3;
-const int cycleLED = 5;
-const int recLED = 4;
+const int recordButton = 8;
+const int cycleButton = 9;
+const int cycleLED = 7;
+const int recLED = 6;
 const int potPin = A2;
 const int envIn = A0;
 const int trigIn = A1;
@@ -24,7 +25,8 @@ int cycleButStatePrevious;
 
 long potState;
 long envInState;
-long trigInState;
+long trigInStateCurrent;
+long trigInStatePrevious;
 long cycleButtonTime;
 
 int recVal;
@@ -42,7 +44,8 @@ int lookupTime[299]  =
 
 void setup(void) {
   Serial.begin(9600);
-  dac.begin(0x62);
+  dac1.begin(0x62);
+  dac2.begin(0x65);
   for(int x=0;x<6000;x+=20){
       lookupTime[x/20] = x;
     }
@@ -56,8 +59,9 @@ long scale(long newMin, long newMax, long oldMin, long oldMax, long oldValue){
 //the corresponding time location it was recorded.
 int playbackBuff(){
     if (playbackTime >= lookupTime[buffPosition]){
-      dac.setVoltage(buff[buffPosition],false);
-      analogWrite(11,buff[buffPosition]);
+      Serial.println(buff[buffPosition]);
+      dac1.setVoltage(buff[buffPosition],false);
+      analogWrite(11,(buff[buffPosition]/16)); 
       buffPosition++;
     }
   }
@@ -69,8 +73,12 @@ void loop(){
     recButStateCurrent = digitalRead(recordButton);
     cycleButStateCurrent = digitalRead(cycleButton);
     potState = analogRead(potPin);
-    envInState = scale(0,1023,0,570,analogRead(envIn));
-    trigInState = analogRead(trigIn);
+    envInState = scale(0,1023,0,600,analogRead(envIn));
+    trigInStateCurrent = analogRead(trigIn);
+
+    //Serial.println(trigInStateCurrent);
+
+    dac2.setVoltage(envInState*4,false);
 
     //check cycle button
     if (cycleButStateCurrent && !cycleButStatePrevious && cycling == 0 && millis()-cycleButtonTime>200){
@@ -83,6 +91,11 @@ void loop(){
       digitalWrite(cycleLED,LOW);
       Serial.println("cycling off");
       cycleButtonTime = millis();
+    }
+
+    if (!cycling && !triggered){
+      dac1.setVoltage(0,false);
+      analogWrite(11,0); 
     }
 
     if (recButStateCurrent && !recButStatePrevious && !recording){
@@ -106,7 +119,7 @@ void loop(){
     }
 
     //if a trigger was received, prepare for single buffer playback
-    if (trigInState > 980 && !recording && !cycling){
+    if (trigInStateCurrent > 700 && trigInStatePrevious < 20 && !recording && !cycling){
         Serial.println("triggered");
         startTime = time;
         triggered = true;
@@ -140,8 +153,10 @@ void loop(){
       Serial.println(buffLength);
       if (buffLength >= lookupTime[buffPosition]){ //if passed a time marker
           recVal = (abs(potState-envInState)*4);
-          if (recVal > 1023) { 
-            recVal = 1023; //set corresponding buffer value to envIn plus pot as offset
+          if (recVal > 4095) { 
+            recVal = 4095; //set corresponding buffer value to envIn plus pot as offset
+          } else if (recVal < 200) {
+            recVal = 0;  
           }
           buff[buffPosition] = recVal;
           buffPosition++;
@@ -156,4 +171,5 @@ void loop(){
     
     cycleButStatePrevious = cycleButStateCurrent;
     recButStatePrevious = recButStateCurrent;
+    trigInStatePrevious = trigInStateCurrent;
   }
