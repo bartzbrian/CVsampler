@@ -37,19 +37,13 @@ unsigned long playbackTime;
 unsigned long time;
 unsigned long startTime = 0;
 
-int buff[299] =
-{};
-
-int lookupTime[299]  =
+int buff[599] =
 {};
 
 void setup(void) {
   Serial.begin(9600);
   dac1.begin(0x62);
   dac2.begin(0x65);
-  for(int x=0;x<6000;x+=20){
-      lookupTime[x/20] = x;
-    }
 }
 
 long scale(long newMin, long newMax, long oldMin, long oldMax, long oldValue){
@@ -59,7 +53,7 @@ long scale(long newMin, long newMax, long oldMin, long oldMax, long oldValue){
 //outputs the corresponding buffer voltage on the dac, if it reached 
 //the corresponding time location it was recorded.
 int playbackBuff(){
-    if (playbackTime >= lookupTime[buffPosition]){
+    if (playbackTime >= buffPosition*10){
       Serial.println(buff[buffPosition]);
       dac1.setVoltage(buff[buffPosition],false);
       analogWrite(11,(buff[buffPosition]/16)); 
@@ -80,24 +74,6 @@ void loop(){
     //dedicated envelope follower output
     dac2.setVoltage(envInState*4,false);
 
-    //if holding down both buttons simultaneously, start recording at trigger 
-    if (recButStateCurrent && cycleButStateCurrent){
-        digitalWrite(recLED,LOW);
-        digitalWrite(cycleLED,LOW);
-        cycling = false;
-        recording = false;
-        if (trigInStateCurrent > 700 && trigInStatePrevious < 20){
-          Serial.println("recording triggered");
-          digitalWrite(recLED,HIGH);
-          digitalWrite(cycleLED,LOW);
-          buffPosition = 0;
-          buffLength = 0;
-          startTime = time;
-          Serial.println("recording");
-          recording = true;
-        }
-    }   
-
     //check cycle button state, set cycling vars accordingly
     if (cycleButStateCurrent && !recButStateCurrent && !cycleButStatePrevious && cycling == 0 && millis()-cycleButtonTime>200){
       cycling = 1;
@@ -111,10 +87,10 @@ void loop(){
       cycleButtonTime = millis();
     }
 
-    //output 0 Volts to dac if not cycling or triggered
+    //output the input to dac if not cycling or triggered
     if (!cycling && !triggered){
-      dac1.setVoltage(0,false);
-      analogWrite(11,0); 
+      dac1.setVoltage((abs(potState-envInState)*4),false);
+      analogWrite(11,abs(potState-envInState)/4); 
     }
 
     //start recording if rec button held down
@@ -135,14 +111,33 @@ void loop(){
       digitalWrite(recLED, LOW);
       recording = false;
     }
+    
+    if (recButStateCurrent && cycleButStateCurrent){
+       cycling = false;  
+       digitalWrite(cycleLED,LOW);        
+    }
 
-    //if a trigger was received, prepare for single buffer playback
-    if (trigInStateCurrent > 700 && trigInStatePrevious < 20 && !recording && !cycling){
-        Serial.println("triggered");
-        startTime = time;
-        triggered = true;
-        playbackTime = 0;
-        buffPosition = 0;
+    //if a trigger was received, check if both buttons are pressed
+    //if they are, begin recording at trigger time. otherwise, trigger
+    //prepares for a single buffer playback
+    if (trigInStateCurrent > 650 && trigInStatePrevious < 50){
+        if(recButStateCurrent && cycleButStateCurrent){
+            cycling = false;
+            Serial.println("recording triggered");
+            digitalWrite(recLED,HIGH);
+            digitalWrite(cycleLED,LOW);
+            buffPosition = 0;
+            buffLength = 0;
+            startTime = time;
+            Serial.println("recording");
+            recording = true;           
+          } else if (!recording && !cycling){
+            Serial.println("playback triggered");
+            startTime = time;
+            triggered = true;
+            playbackTime = 0;
+            buffPosition = 0;
+          }
     }
 
     //playback buffer once per trigger
@@ -170,7 +165,7 @@ void loop(){
     if (recording) {
       buffLength = time-startTime;
       Serial.println(buffLength);
-      if (buffLength >= lookupTime[buffPosition]){ //if passed a time marker
+      if (buffLength >= buffPosition*10){ //if passed a time marker
           recVal = (abs(potState-envInState)*4);
           if (recVal > 4095) { 
             recVal = 4095; //set corresponding buffer value to envIn plus pot as offset
